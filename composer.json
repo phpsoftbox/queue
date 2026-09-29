@@ -34,6 +34,9 @@
             "PhpSoftBox\\Queue\\Tests\\": "tests/"
         }
     },
+    "suggest": {
+        "phpsoftbox/cli-app": "Required for queue:listen, queue:run and queue:push commands."
+    },
     "extra": {
         "psb": {
             "providers": [
