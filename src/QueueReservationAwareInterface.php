@@ -7,7 +7,9 @@ namespace PhpSoftBox\Queue;
 interface QueueReservationAwareInterface extends QueueInterface
 {
     /**
-     * Резервирует задачу для обработки (visibility timeout).
+     * Резервирует задачу для обработки (visibility timeout) и атомарно увеличивает её `attempts` на 1:
+     * возвращённая задача несёт номер текущей попытки, а резервирование, не завершённое `acknowledge()`/`release()`
+     * (воркер упал), всё равно учитывается.
      */
     public function reserve(): ?QueueJob;
 
@@ -17,7 +19,7 @@ interface QueueReservationAwareInterface extends QueueInterface
     public function acknowledge(QueueJob $job): void;
 
     /**
-     * Возвращает задачу обратно в очередь.
+     * Возвращает задачу обратно в очередь, сохраняя `attempts` переданной задачи.
      */
     public function release(QueueJob $job, int $delaySeconds = 0): void;
 }

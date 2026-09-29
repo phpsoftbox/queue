@@ -175,12 +175,17 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
                     throw new QueueException('Queue row does not contain job id.');
                 }
 
-                $visibilityTtl = $this->resolveVisibilityTimeout();
+                // Попытка учитывается при резервировании, а не по результату: если воркер упадёт посреди задачи
+                // (OOM, fatal, kill), следующее резервирование увидит её, и Worker не будет повторять задачу вечно.
+                $attemptsColumn = $this->schema->attemptsColumn;
+                $visibilityTtl  = $this->resolveVisibilityTimeout();
                 $conn->execute(
                     sprintf(
-                        'UPDATE %s SET %s = :reserved_datetime WHERE %s = :id',
+                        'UPDATE %s SET %s = :reserved_datetime, %s = %s + 1 WHERE %s = :id',
                         $table,
                         $reservedAtColumn,
+                        $attemptsColumn,
+                        $attemptsColumn,
                         $idColumn,
                     ),
                     [
@@ -188,6 +193,8 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
                         'id'                => $row[$idColumn],
                     ],
                 );
+
+                $row[$attemptsColumn] = (int) ($row[$attemptsColumn] ?? 0) + 1;
 
                 return $this->hydrateJob($row);
             });

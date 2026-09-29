@@ -76,7 +76,8 @@ final class WorkerStatusListenerFailureTest extends TestCase
         $requeued = $queue->pop();
         self::assertInstanceOf(QueueJob::class, $requeued);
         self::assertSame('job-1', $requeued->id());
-        self::assertSame(1, $requeued->attempts());
+        // Повторная выдача — вторая попытка.
+        self::assertSame(2, $requeued->attempts());
     }
 
     private function failingDispatcher(string $failOnStatus): EventDispatcherInterface

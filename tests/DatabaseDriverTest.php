@@ -337,7 +337,7 @@ final class DatabaseDriverTest extends TestCase
     }
 
     /**
-     * Проверяет, что release() возвращает задачу в очередь и обновляет attempts.
+     * Проверяет, что release() возвращает задачу в очередь, а следующий reserve() выдаёт её как вторую попытку.
      */
     #[Test]
     public function testReleaseUpdatesAttemptsAndMakesJobAvailableAgain(): void
@@ -387,12 +387,13 @@ final class DatabaseDriverTest extends TestCase
 
             $reserved = $queue->reserve();
             self::assertNotNull($reserved);
+            self::assertSame(1, $reserved->attempts());
 
-            $queue->release($reserved->withAttempt());
+            $queue->release($reserved);
 
             $retried = $queue->reserve();
             self::assertNotNull($retried);
-            self::assertSame(1, $retried->attempts());
+            self::assertSame(2, $retried->attempts());
         } finally {
             @unlink($dbFile);
         }
