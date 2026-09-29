@@ -62,7 +62,7 @@ final class DatabaseProgressStoreTest extends TestCase
                 $table->datetime('started_datetime')->nullable();
                 $table->datetime('finished_datetime')->nullable();
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $store = new DatabaseProgressStore($manager, new DatabaseQueueProgressSchema(), 'main');
@@ -145,7 +145,7 @@ final class DatabaseProgressStoreTest extends TestCase
                 $table->datetime('started_datetime')->nullable();
                 $table->datetime('finished_datetime')->nullable();
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $store = new DatabaseProgressStore($manager, new DatabaseQueueProgressSchema(), 'main');
@@ -225,7 +225,7 @@ final class DatabaseProgressStoreTest extends TestCase
                 $table->datetime('started_datetime')->nullable();
                 $table->datetime('finished_datetime')->nullable();
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $store = new DatabaseProgressStore($manager, new DatabaseQueueProgressSchema(), 'main');

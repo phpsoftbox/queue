@@ -355,7 +355,7 @@ final class WorkerTest extends TestCase
 
             public function reserve(): ?QueueJob
             {
-                return array_shift($this->jobs);
+                return array_shift($this->jobs)?->withAttempt();
             }
 
             public function acknowledge(QueueJob $job): void

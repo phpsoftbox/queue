@@ -13,17 +13,16 @@
         "sort-packages": true
     },
     "require": {
-        "php": "^8.4",
-        "phpsoftbox/clock": "dev-master",
-        "phpsoftbox/database": "dev-master",
+        "php": "^8.5",
+        "phpsoftbox/clock": "^1.0",
+        "phpsoftbox/database": "^1.0",
         "psr/event-dispatcher": "^1.0",
         "psr/log": "^3.0"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.93",
-        "phpsoftbox/cli-app": "dev-master",
-        "phpsoftbox/cs-fixer": "^1.1.0",
-        "phpunit/phpunit": "^11.2"
+        "phpsoftbox/cli-app": "^1.0",
+        "phpsoftbox/cs-fixer": "^1.2.2",
+        "phpunit/phpunit": "^13.3"
     },
     "autoload": {
         "psr-4": {
@@ -34,6 +33,9 @@
         "psr-4": {
             "PhpSoftBox\\Queue\\Tests\\": "tests/"
         }
+    },
+    "suggest": {
+        "phpsoftbox/cli-app": "Required for queue:listen, queue:run and queue:push commands."
     },
     "extra": {
         "psb": {
@@ -47,6 +49,5 @@
         "cs:fix": "vendor/bin/psb-cs-fixer fix",
         "cs:check": "vendor/bin/psb-cs-fixer check --diff"
     },
-    "minimum-stability": "dev",
     "prefer-stable": true
 }

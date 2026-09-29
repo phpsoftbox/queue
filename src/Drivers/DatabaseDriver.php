@@ -77,7 +77,10 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
             $priority    = $job->priority();
 
             $sql = sprintf(
-                'INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s, %s) VALUES (:job_id, :payload, :attempts, :priority, :available_datetime, :created_datetime, :mutex_key, :mutex_ttl_seconds, :is_cancellable)',
+                '
+                    INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (:job_id, :payload, :attempts, :priority, :available_datetime, :created_datetime, :mutex_key, :mutex_ttl_seconds, :is_cancellable)
+                ',
                 $table,
                 $this->schema->jobIdColumn,
                 $this->schema->payloadColumn,
@@ -146,7 +149,14 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
                 $now               = $this->formatTimestamp($nowTs);
 
                 $sql = sprintf(
-                    'SELECT * FROM %s WHERE %s <= :now AND (%s IS NULL OR %s <= :now) ORDER BY %s DESC, %s ASC LIMIT 1%s',
+                    '
+                        SELECT *
+                        FROM %s
+                        WHERE %s <= :now
+                            AND (%s IS NULL OR %s <= :now)
+                        ORDER BY %s DESC, %s ASC
+                        LIMIT 1%s
+                    ',
                     $table,
                     $availableAtColumn,
                     $reservedAtColumn,
@@ -165,12 +175,17 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
                     throw new QueueException('Queue row does not contain job id.');
                 }
 
-                $visibilityTtl = $this->resolveVisibilityTimeout();
+                // Попытка учитывается при резервировании, а не по результату: если воркер упадёт посреди задачи
+                // (OOM, fatal, kill), следующее резервирование увидит её, и Worker не будет повторять задачу вечно.
+                $attemptsColumn = $this->schema->attemptsColumn;
+                $visibilityTtl  = $this->resolveVisibilityTimeout();
                 $conn->execute(
                     sprintf(
-                        'UPDATE %s SET %s = :reserved_datetime WHERE %s = :id',
+                        'UPDATE %s SET %s = :reserved_datetime, %s = %s + 1 WHERE %s = :id',
                         $table,
                         $reservedAtColumn,
+                        $attemptsColumn,
+                        $attemptsColumn,
                         $idColumn,
                     ),
                     [
@@ -178,6 +193,8 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
                         'id'                => $row[$idColumn],
                     ],
                 );
+
+                $row[$attemptsColumn] = (int) ($row[$attemptsColumn] ?? 0) + 1;
 
                 return $this->hydrateJob($row);
             });
@@ -222,7 +239,19 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
             $table = $conn->table($this->schema->table);
             $conn->execute(
                 sprintf(
-                    'UPDATE %s SET %s = :payload, %s = :attempts, %s = :priority, %s = :available_datetime, %s = :reserved_datetime, %s = :mutex_key, %s = :mutex_ttl_seconds, %s = :is_cancellable WHERE %s = :job_id',
+                    '
+                        UPDATE %s
+                        SET
+                            %s = :payload,
+                            %s = :attempts,
+                            %s = :priority,
+                            %s = :available_datetime,
+                            %s = :reserved_datetime,
+                            %s = :mutex_key,
+                            %s = :mutex_ttl_seconds,
+                            %s = :is_cancellable
+                        WHERE %s = :job_id
+                    ',
                     $table,
                     $this->schema->payloadColumn,
                     $this->schema->attemptsColumn,
@@ -421,6 +450,14 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
         return '';
     }
 
+    private function ignoreDuplicateSuffix(ConnectionInterface $conn, string $keyColumn): string
+    {
+        return match ($conn->driver()->name()) {
+            DriversEnum::MYSQL->value, DriversEnum::MARIADB->value => sprintf('ON DUPLICATE KEY UPDATE %1$s = %1$s', $keyColumn),
+            default                                                => sprintf('ON CONFLICT (%s) DO NOTHING', $keyColumn),
+        };
+    }
+
     private function encodePayload(mixed $payload): string
     {
         try {
@@ -477,28 +514,32 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
             ],
         );
 
-        try {
-            $conn->execute(
-                sprintf(
-                    'INSERT INTO %s (%s, %s, %s, %s, %s) VALUES (:mutex_key, :owner_job_id, :expires_datetime, :created_datetime, :updated_datetime)',
-                    $table,
-                    $this->mutexSchema->mutexKeyColumn,
-                    $this->mutexSchema->ownerJobIdColumn,
-                    $this->mutexSchema->expiresDatetimeColumn,
-                    $this->mutexSchema->createdDatetimeColumn,
-                    $this->mutexSchema->updatedDatetimeColumn,
-                ),
-                [
-                    'mutex_key'        => $mutexKey,
-                    'owner_job_id'     => $job->id(),
-                    'expires_datetime' => $expiresAt,
-                    'created_datetime' => $now,
-                    'updated_datetime' => $now,
-                ],
-            );
-
+        // Конфликт ключа не должен ронять запрос: в PostgreSQL ошибка INSERT обрывает внешнюю транзакцию
+        // вызывающего кода (push() внутри бизнес-транзакции), поэтому вставка без исключения при дубликате.
+        $inserted = $conn->execute(
+            sprintf(
+                '
+                    INSERT INTO %s (%s, %s, %s, %s, %s)
+                    VALUES (:mutex_key, :owner_job_id, :expires_datetime, :created_datetime, :updated_datetime) %s
+                ',
+                $table,
+                $this->mutexSchema->mutexKeyColumn,
+                $this->mutexSchema->ownerJobIdColumn,
+                $this->mutexSchema->expiresDatetimeColumn,
+                $this->mutexSchema->createdDatetimeColumn,
+                $this->mutexSchema->updatedDatetimeColumn,
+                $this->ignoreDuplicateSuffix($conn, $this->mutexSchema->mutexKeyColumn),
+            ),
+            [
+                'mutex_key'        => $mutexKey,
+                'owner_job_id'     => $job->id(),
+                'expires_datetime' => $expiresAt,
+                'created_datetime' => $now,
+                'updated_datetime' => $now,
+            ],
+        );
+        if ($inserted > 0) {
             return true;
-        } catch (Throwable) {
         }
 
         $existing = $conn->fetchOne(
@@ -525,7 +566,14 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
 
         $conn->execute(
             sprintf(
-                'UPDATE %s SET %s = :owner_job_id, %s = :expires_datetime, %s = :updated_datetime WHERE %s = :mutex_key',
+                '
+                    UPDATE %s
+                    SET
+                        %s = :owner_job_id,
+                        %s = :expires_datetime,
+                        %s = :updated_datetime
+                    WHERE %s = :mutex_key
+                ',
                 $table,
                 $this->mutexSchema->ownerJobIdColumn,
                 $this->mutexSchema->expiresDatetimeColumn,

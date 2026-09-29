@@ -75,7 +75,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main');
@@ -142,7 +142,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main');
@@ -160,11 +160,11 @@ final class DatabaseDriverTest extends TestCase
     #[Test]
     public function testPopRetriesAfterConnectionLostWhenManagerSupportsReconnect(): void
     {
-        $primary = $this->createMock(ConnectionInterface::class);
+        $primary = $this->createStub(ConnectionInterface::class);
         $primary->method('isReadOnly')->willReturn(false);
         $primary->method('transaction')->willThrowException(new RuntimeException('MySQL server has gone away'));
 
-        $secondary = $this->createMock(ConnectionInterface::class);
+        $secondary = $this->createStub(ConnectionInterface::class);
         $secondary->method('isReadOnly')->willReturn(false);
         $secondary->method('table')->willReturnCallback(static fn (string $name): string => $name);
         $secondary->method('fetchOne')->willReturn(null);
@@ -258,7 +258,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), connectionName: 'main');
@@ -314,7 +314,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main', visibilityTimeoutSeconds: 60);
@@ -337,7 +337,7 @@ final class DatabaseDriverTest extends TestCase
     }
 
     /**
-     * Проверяет, что release() возвращает задачу в очередь и обновляет attempts.
+     * Проверяет, что release() возвращает задачу в очередь, а следующий reserve() выдаёт её как вторую попытку.
      */
     #[Test]
     public function testReleaseUpdatesAttemptsAndMakesJobAvailableAgain(): void
@@ -378,7 +378,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main', visibilityTimeoutSeconds: 60);
@@ -387,12 +387,13 @@ final class DatabaseDriverTest extends TestCase
 
             $reserved = $queue->reserve();
             self::assertNotNull($reserved);
+            self::assertSame(1, $reserved->attempts());
 
-            $queue->release($reserved->withAttempt());
+            $queue->release($reserved);
 
             $retried = $queue->reserve();
             self::assertNotNull($retried);
-            self::assertSame(1, $retried->attempts());
+            self::assertSame(2, $retried->attempts());
         } finally {
             @unlink($dbFile);
         }
@@ -440,7 +441,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main');

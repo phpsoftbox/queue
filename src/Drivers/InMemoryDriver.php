@@ -75,7 +75,7 @@ final class InMemoryDriver implements QueueInterface, QueueMutexAwareInterface
                 continue;
             }
 
-            return $job;
+            return $job->withAttempt();
         }
 
         return null;

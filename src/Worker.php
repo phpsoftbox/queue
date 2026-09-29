@@ -38,25 +38,44 @@ final readonly class Worker
          */
         private ?Closure $retryDelayResolver = null,
         private int $retryDelaySeconds = 0,
+        /**
+         * Сброс состояния после каждой задачи (например, `ServicesResetter::reset()` из phpsoftbox/container):
+         * задачи одного воркера не должны видеть кеши, identity map и контекст предыдущих.
+         *
+         * @var null|Closure():void
+         */
+        private ?Closure $resetState = null,
     ) {
     }
 
     /**
+     * Обрабатывает задачи, пока очередь не опустеет, не достигнут `$maxJobs` (`0` — без лимита) или `$shouldStop`
+     * не вернёт `true`. `$shouldStop` проверяется перед каждой задачей: текущая задача всегда доделывается.
+     *
      * @param callable(mixed, QueueJob, ProgressAwareInterface): void $handler
+     * @param null|Closure():bool $shouldStop
      */
-    public function run(callable $handler, int $maxJobs = 0, ?LoggerInterface $logger = null): int
-    {
+    public function run(
+        callable $handler,
+        int $maxJobs = 0,
+        ?LoggerInterface $logger = null,
+        ?Closure $shouldStop = null,
+    ): int {
         $logger ??= $this->logger;
         $processed = 0;
 
         while ($maxJobs === 0 || $processed < $maxJobs) {
+            if ($shouldStop !== null && $shouldStop()) {
+                break;
+            }
+
             $job = $this->pullJob();
             if ($job === null) {
                 break;
             }
 
             $processed++;
-            $progress = $this->createProgress($job);
+            $progress = $this->prepareJob($job, $logger, fn (): ProgressAwareInterface => $this->createProgress($job));
             if ($job->isCancellable() && $progress->isCancellationRequested()) {
                 $status = QueueProgressStatus::CANCELLED;
                 $progress->setStatus($status, 'Job отменён до запуска.');
@@ -70,83 +89,211 @@ final readonly class Worker
                     'job_id' => $job->id(),
                 ]);
                 $this->dispatchEvent(new JobAfterEvent($job, $progress, $status));
+                $this->resetState($logger);
+                continue;
+            }
+
+            if ($job->attempts() > $this->maxAttempts()) {
+                $this->failLostJob($job, $progress, $logger);
                 continue;
             }
 
             $status = QueueProgressStatus::PROCESSING;
-            $progress->setStatus($status);
-            $this->dispatchStatusChange($job, $progress, QueueProgressStatus::QUEUED, $status);
-            $logger?->info('Queue job started', [
-                'job_id'   => $job->id(),
-                'attempt'  => $job->attempts() + 1,
-                'priority' => $job->priority(),
-            ]);
-            $this->dispatchEvent(new JobBeforeEvent($job, $progress));
+            $this->prepareJob($job, $logger, function () use ($job, $progress, $status, $logger): void {
+                $progress->setStatus($status);
+                $this->dispatchStatusChange($job, $progress, QueueProgressStatus::QUEUED, $status);
+                $logger?->info('Queue job started', [
+                    'job_id'   => $job->id(),
+                    'attempt'  => $job->attempts(),
+                    'priority' => $job->priority(),
+                ]);
+                $this->dispatchEvent(new JobBeforeEvent($job, $progress));
+            });
 
             $lastException = null;
             try {
-                $this->invokeHandler($handler, $job, $progress);
+                try {
+                    $this->invokeHandler($handler, $job, $progress);
+                } catch (Throwable $exception) {
+                    $lastException = $exception;
+                }
 
-                $status = QueueProgressStatus::COMPLETED;
-                $progress->setStatus($status);
-                $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status);
+                // Ошибки учёта после успешного обработчика (прогресс, слушатели событий) не делают задачу
+                // упавшей: иначе она ушла бы на повтор и выполнилась ещё раз.
+                $status = $lastException === null
+                    ? $this->completeJob($job, $progress, $logger)
+                    : $this->failJob($job, $progress, $lastException, $logger);
+            } finally {
+                $this->dispatchEvent(new JobAfterEvent($job, $progress, $status, $lastException));
+                $this->resetState($logger);
+            }
+        }
+
+        return $processed;
+    }
+
+    /**
+     * Подготовка до запуска обработчика (прогресс, статус `processing`, события). Если она упала, задача
+     * возвращается в очередь сразу, а не остаётся зарезервированной до visibility timeout; ошибка пробрасывается.
+     *
+     * @template T
+     * @param Closure():T $step
+     * @return T
+     */
+    private function prepareJob(QueueJob $job, ?LoggerInterface $logger, Closure $step): mixed
+    {
+        try {
+            return $step();
+        } catch (Throwable $exception) {
+            try {
+                $this->retryJob($job, 0);
+            } catch (Throwable $releaseException) {
+                $logger?->error('Queue job return after preparation failure failed', [
+                    'job_id'    => $job->id(),
+                    'exception' => $releaseException::class,
+                    'message'   => $releaseException->getMessage(),
+                ]);
+            }
+
+            $this->resetState($logger);
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Задача зарезервирована больше `maxAttempts` раз, а обработчик ни разу не вернул результат: воркер падал
+     * посреди неё (OOM, fatal, kill) или она выполнялась дольше visibility timeout. Такая задача не выполняется
+     * снова, а сразу уходит в failed.
+     */
+    private function failLostJob(QueueJob $job, ProgressAwareInterface $progress, ?LoggerInterface $logger): void
+    {
+        $status    = QueueProgressStatus::FAILED;
+        $exception = QueueJobLostException::forJob($job, $this->maxAttempts());
+
+        $logger?->error('Queue job lost', [
+            'job_id'       => $job->id(),
+            'attempt'      => $job->attempts(),
+            'max_attempts' => $this->maxAttempts(),
+            'message'      => $exception->getMessage(),
+        ]);
+
+        try {
+            try {
+                $progress->setStatus($status, $exception->getMessage());
+                $this->dispatchStatusChange($job, $progress, QueueProgressStatus::QUEUED, $status, $exception);
+                $this->failedStore?->store($job, $exception);
+                if ($this->onFailure !== null) {
+                    ($this->onFailure)($job, $exception);
+                }
+            } finally {
                 try {
                     $this->acknowledgeReservedJob($job);
                 } finally {
                     $this->releaseMutexSafely($job, $logger);
                 }
+            }
+        } finally {
+            $this->dispatchEvent(new JobAfterEvent($job, $progress, $status, $exception));
+            $this->resetState($logger);
+        }
+    }
 
-                $logger?->info('Queue job completed', [
-                    'job_id'  => $job->id(),
-                    'attempt' => $job->attempts() + 1,
-                ]);
-            } catch (Throwable $exception) {
-                $next = $job->withAttempt();
+    private function maxAttempts(): int
+    {
+        return max(1, $this->maxAttempts);
+    }
 
-                $logger?->error('Queue job failed', [
-                    'job_id'    => $job->id(),
-                    'attempt'   => $next->attempts(),
-                    'exception' => $exception::class,
-                    'message'   => $exception->getMessage(),
-                ]);
-                $lastException = $exception;
-
-                if ($next->attempts() < $this->maxAttempts) {
-                    $status = QueueProgressStatus::RETRYING;
-                    $progress->setStatus($status, $exception->getMessage());
-                    $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
-                    $delaySeconds = $this->resolveRetryDelay($next, $exception);
-                    $this->retryJob($next, $delaySeconds);
-                    $logger?->warning('Queue job requeued', [
-                        'job_id'        => $job->id(),
-                        'attempt'       => $next->attempts(),
-                        'delay_seconds' => $delaySeconds,
-                    ]);
-                } else {
-                    try {
-                        $status = QueueProgressStatus::FAILED;
-                        $progress->setStatus($status, $exception->getMessage());
-                        $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
-                        if ($this->onFailure !== null) {
-                            $this->failedStore?->store($next, $exception);
-                            ($this->onFailure)($next, $exception);
-                        } elseif ($this->failedStore !== null) {
-                            $this->failedStore->store($next, $exception);
-                        }
-                    } finally {
-                        try {
-                            $this->acknowledgeReservedJob($job);
-                        } finally {
-                            $this->releaseMutexSafely($next, $logger);
-                        }
-                    }
-                }
+    private function completeJob(QueueJob $job, ProgressAwareInterface $progress, ?LoggerInterface $logger): string
+    {
+        $status = QueueProgressStatus::COMPLETED;
+        try {
+            $progress->setStatus($status);
+            $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status);
+        } finally {
+            try {
+                $this->acknowledgeReservedJob($job);
             } finally {
-                $this->dispatchEvent(new JobAfterEvent($job, $progress, $status, $lastException));
+                $this->releaseMutexSafely($job, $logger);
             }
         }
 
-        return $processed;
+        $logger?->info('Queue job completed', [
+            'job_id'  => $job->id(),
+            'attempt' => $job->attempts(),
+        ]);
+
+        return $status;
+    }
+
+    private function failJob(
+        QueueJob $job,
+        ProgressAwareInterface $progress,
+        Throwable $exception,
+        ?LoggerInterface $logger,
+    ): string {
+        $logger?->error('Queue job failed', [
+            'job_id'    => $job->id(),
+            'attempt'   => $job->attempts(),
+            'exception' => $exception::class,
+            'message'   => $exception->getMessage(),
+        ]);
+
+        if ($job->attempts() < $this->maxAttempts()) {
+            $status       = QueueProgressStatus::RETRYING;
+            $delaySeconds = $this->resolveRetryDelay($job, $exception);
+            try {
+                $progress->setStatus($status, $exception->getMessage());
+                $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
+            } finally {
+                $this->retryJob($job, $delaySeconds);
+            }
+
+            $logger?->warning('Queue job requeued', [
+                'job_id'        => $job->id(),
+                'attempt'       => $job->attempts(),
+                'delay_seconds' => $delaySeconds,
+            ]);
+
+            return $status;
+        }
+
+        $status = QueueProgressStatus::FAILED;
+        try {
+            $progress->setStatus($status, $exception->getMessage());
+            $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
+            $this->failedStore?->store($job, $exception);
+            if ($this->onFailure !== null) {
+                ($this->onFailure)($job, $exception);
+            }
+        } finally {
+            try {
+                $this->acknowledgeReservedJob($job);
+            } finally {
+                $this->releaseMutexSafely($job, $logger);
+            }
+        }
+
+        return $status;
+    }
+
+    /**
+     * Ошибка сброса не останавливает воркер: она пишется в лог, следующая задача выполняется.
+     */
+    private function resetState(?LoggerInterface $logger): void
+    {
+        if ($this->resetState === null) {
+            return;
+        }
+
+        try {
+            ($this->resetState)();
+        } catch (Throwable $exception) {
+            $logger?->error('Queue worker state reset failed', [
+                'exception' => $exception::class,
+                'message'   => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function pullJob(): ?QueueJob
@@ -223,7 +370,7 @@ final readonly class Worker
         return new ProgressReporter(
             store: $this->progressStore,
             jobId: $job->id(),
-            attempt: $job->attempts() + 1,
+            attempt: $job->attempts(),
             stepPercent: $this->progressStepPercent,
         );
     }

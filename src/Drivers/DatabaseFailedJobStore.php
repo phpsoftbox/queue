@@ -46,7 +46,10 @@ final class DatabaseFailedJobStore implements FailedJobStoreInterface
         $exceptionInfo = $this->formatException($exception);
 
         $sql = sprintf(
-            'INSERT INTO %s (%s, %s, %s, %s, %s) VALUES (:job_id, :payload, :attempts, :exception, :failed_datetime)',
+            '
+                INSERT INTO %s (%s, %s, %s, %s, %s)
+                VALUES (:job_id, :payload, :attempts, :exception, :failed_datetime)
+            ',
             $table,
             $this->schema->jobIdColumn,
             $this->schema->payloadColumn,

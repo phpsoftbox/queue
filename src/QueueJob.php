@@ -46,6 +46,10 @@ final class QueueJob
         return $this->payload;
     }
 
+    /**
+     * Номер текущей попытки: `reserve()`/`pop()` драйвера увеличивают счётчик при каждой выдаче задачи воркеру,
+     * поэтому у выданной задачи он начинается с 1 и учитывает попытки, прерванные падением воркера.
+     */
     public function attempts(): int
     {
         return $this->attempts;

@@ -27,6 +27,20 @@ final class QueueCommandProvider implements CommandProviderInterface
                     type: 'int',
                 ),
                 new OptionDefinition(
+                    name: 'max-time',
+                    description: 'Выйти после текущей задачи, когда процесс работает дольше N секунд (0 = без лимита)',
+                    required: false,
+                    default: 0,
+                    type: 'int',
+                ),
+                new OptionDefinition(
+                    name: 'memory',
+                    description: 'Выйти после текущей задачи, когда процесс занял больше N мегабайт (0 = без лимита)',
+                    required: false,
+                    default: 0,
+                    type: 'int',
+                ),
+                new OptionDefinition(
                     name: 'sleep',
                     short: 's',
                     description: 'Пауза при пустой очереди (секунды)',
