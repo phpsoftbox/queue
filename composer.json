@@ -14,14 +14,14 @@
     },
     "require": {
         "php": "^8.5",
-        "phpsoftbox/clock": "dev-master",
-        "phpsoftbox/database": "dev-master",
+        "phpsoftbox/clock": "^1.0",
+        "phpsoftbox/database": "^1.0",
         "psr/event-dispatcher": "^1.0",
         "psr/log": "^3.0"
     },
     "require-dev": {
-        "phpsoftbox/cli-app": "dev-master",
-        "phpsoftbox/cs-fixer": "^1.2.1",
+        "phpsoftbox/cli-app": "^1.0",
+        "phpsoftbox/cs-fixer": "^1.2.2",
         "phpunit/phpunit": "^13.3"
     },
     "autoload": {
@@ -49,6 +49,5 @@
         "cs:fix": "vendor/bin/psb-cs-fixer fix",
         "cs:check": "vendor/bin/psb-cs-fixer check --diff"
     },
-    "minimum-stability": "dev",
     "prefer-stable": true
 }
