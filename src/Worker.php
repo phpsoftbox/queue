@@ -93,62 +93,17 @@ final readonly class Worker
 
             $lastException = null;
             try {
-                $this->invokeHandler($handler, $job, $progress);
-
-                $status = QueueProgressStatus::COMPLETED;
-                $progress->setStatus($status);
-                $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status);
                 try {
-                    $this->acknowledgeReservedJob($job);
-                } finally {
-                    $this->releaseMutexSafely($job, $logger);
+                    $this->invokeHandler($handler, $job, $progress);
+                } catch (Throwable $exception) {
+                    $lastException = $exception;
                 }
 
-                $logger?->info('Queue job completed', [
-                    'job_id'  => $job->id(),
-                    'attempt' => $job->attempts() + 1,
-                ]);
-            } catch (Throwable $exception) {
-                $next = $job->withAttempt();
-
-                $logger?->error('Queue job failed', [
-                    'job_id'    => $job->id(),
-                    'attempt'   => $next->attempts(),
-                    'exception' => $exception::class,
-                    'message'   => $exception->getMessage(),
-                ]);
-                $lastException = $exception;
-
-                if ($next->attempts() < $this->maxAttempts) {
-                    $status = QueueProgressStatus::RETRYING;
-                    $progress->setStatus($status, $exception->getMessage());
-                    $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
-                    $delaySeconds = $this->resolveRetryDelay($next, $exception);
-                    $this->retryJob($next, $delaySeconds);
-                    $logger?->warning('Queue job requeued', [
-                        'job_id'        => $job->id(),
-                        'attempt'       => $next->attempts(),
-                        'delay_seconds' => $delaySeconds,
-                    ]);
-                } else {
-                    try {
-                        $status = QueueProgressStatus::FAILED;
-                        $progress->setStatus($status, $exception->getMessage());
-                        $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
-                        if ($this->onFailure !== null) {
-                            $this->failedStore?->store($next, $exception);
-                            ($this->onFailure)($next, $exception);
-                        } elseif ($this->failedStore !== null) {
-                            $this->failedStore->store($next, $exception);
-                        }
-                    } finally {
-                        try {
-                            $this->acknowledgeReservedJob($job);
-                        } finally {
-                            $this->releaseMutexSafely($next, $logger);
-                        }
-                    }
-                }
+                // Ошибки учёта после успешного обработчика (прогресс, слушатели событий) не делают задачу
+                // упавшей: иначе она ушла бы на повтор и выполнилась ещё раз.
+                $status = $lastException === null
+                    ? $this->completeJob($job, $progress, $logger)
+                    : $this->failJob($job, $progress, $lastException, $logger);
             } finally {
                 $this->dispatchEvent(new JobAfterEvent($job, $progress, $status, $lastException));
                 $this->resetState($logger);
@@ -156,6 +111,81 @@ final readonly class Worker
         }
 
         return $processed;
+    }
+
+    private function completeJob(QueueJob $job, ProgressAwareInterface $progress, ?LoggerInterface $logger): string
+    {
+        $status = QueueProgressStatus::COMPLETED;
+        try {
+            $progress->setStatus($status);
+            $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status);
+        } finally {
+            try {
+                $this->acknowledgeReservedJob($job);
+            } finally {
+                $this->releaseMutexSafely($job, $logger);
+            }
+        }
+
+        $logger?->info('Queue job completed', [
+            'job_id'  => $job->id(),
+            'attempt' => $job->attempts() + 1,
+        ]);
+
+        return $status;
+    }
+
+    private function failJob(
+        QueueJob $job,
+        ProgressAwareInterface $progress,
+        Throwable $exception,
+        ?LoggerInterface $logger,
+    ): string {
+        $next = $job->withAttempt();
+
+        $logger?->error('Queue job failed', [
+            'job_id'    => $job->id(),
+            'attempt'   => $next->attempts(),
+            'exception' => $exception::class,
+            'message'   => $exception->getMessage(),
+        ]);
+
+        if ($next->attempts() < $this->maxAttempts) {
+            $status       = QueueProgressStatus::RETRYING;
+            $delaySeconds = $this->resolveRetryDelay($next, $exception);
+            try {
+                $progress->setStatus($status, $exception->getMessage());
+                $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
+            } finally {
+                $this->retryJob($next, $delaySeconds);
+            }
+
+            $logger?->warning('Queue job requeued', [
+                'job_id'        => $job->id(),
+                'attempt'       => $next->attempts(),
+                'delay_seconds' => $delaySeconds,
+            ]);
+
+            return $status;
+        }
+
+        $status = QueueProgressStatus::FAILED;
+        try {
+            $progress->setStatus($status, $exception->getMessage());
+            $this->dispatchStatusChange($job, $progress, QueueProgressStatus::PROCESSING, $status, $exception);
+            $this->failedStore?->store($next, $exception);
+            if ($this->onFailure !== null) {
+                ($this->onFailure)($next, $exception);
+            }
+        } finally {
+            try {
+                $this->acknowledgeReservedJob($job);
+            } finally {
+                $this->releaseMutexSafely($next, $logger);
+            }
+        }
+
+        return $status;
     }
 
     /**
