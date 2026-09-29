@@ -443,6 +443,14 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
         return '';
     }
 
+    private function ignoreDuplicateSuffix(ConnectionInterface $conn, string $keyColumn): string
+    {
+        return match ($conn->driver()->name()) {
+            DriversEnum::MYSQL->value, DriversEnum::MARIADB->value => sprintf('ON DUPLICATE KEY UPDATE %1$s = %1$s', $keyColumn),
+            default                                                => sprintf('ON CONFLICT (%s) DO NOTHING', $keyColumn),
+        };
+    }
+
     private function encodePayload(mixed $payload): string
     {
         try {
@@ -499,31 +507,32 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
             ],
         );
 
-        try {
-            $conn->execute(
-                sprintf(
-                    '
-                        INSERT INTO %s (%s, %s, %s, %s, %s)
-                        VALUES (:mutex_key, :owner_job_id, :expires_datetime, :created_datetime, :updated_datetime)
-                    ',
-                    $table,
-                    $this->mutexSchema->mutexKeyColumn,
-                    $this->mutexSchema->ownerJobIdColumn,
-                    $this->mutexSchema->expiresDatetimeColumn,
-                    $this->mutexSchema->createdDatetimeColumn,
-                    $this->mutexSchema->updatedDatetimeColumn,
-                ),
-                [
-                    'mutex_key'        => $mutexKey,
-                    'owner_job_id'     => $job->id(),
-                    'expires_datetime' => $expiresAt,
-                    'created_datetime' => $now,
-                    'updated_datetime' => $now,
-                ],
-            );
-
+        // Конфликт ключа не должен ронять запрос: в PostgreSQL ошибка INSERT обрывает внешнюю транзакцию
+        // вызывающего кода (push() внутри бизнес-транзакции), поэтому вставка без исключения при дубликате.
+        $inserted = $conn->execute(
+            sprintf(
+                '
+                    INSERT INTO %s (%s, %s, %s, %s, %s)
+                    VALUES (:mutex_key, :owner_job_id, :expires_datetime, :created_datetime, :updated_datetime) %s
+                ',
+                $table,
+                $this->mutexSchema->mutexKeyColumn,
+                $this->mutexSchema->ownerJobIdColumn,
+                $this->mutexSchema->expiresDatetimeColumn,
+                $this->mutexSchema->createdDatetimeColumn,
+                $this->mutexSchema->updatedDatetimeColumn,
+                $this->ignoreDuplicateSuffix($conn, $this->mutexSchema->mutexKeyColumn),
+            ),
+            [
+                'mutex_key'        => $mutexKey,
+                'owner_job_id'     => $job->id(),
+                'expires_datetime' => $expiresAt,
+                'created_datetime' => $now,
+                'updated_datetime' => $now,
+            ],
+        );
+        if ($inserted > 0) {
             return true;
-        } catch (Throwable) {
         }
 
         $existing = $conn->fetchOne(
