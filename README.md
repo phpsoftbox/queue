@@ -89,6 +89,17 @@ PHP `null`, пустая строка и неизвестные значения
 Подробнее: [прогресс и отмена](docs/08-progress.md),
 [переход на явный выбор хранилища](docs/10-progress-stores-upgrade.md).
 
+## Сброс состояния между задачами
+
+`Worker` вызывает `resetState` после каждой задачи — успешной, упавшей или отменённой. Передайте туда общий хук
+контейнера, чтобы задачи не видели кеши, identity map ORM и контекст предыдущих:
+
+```php
+$worker = new Worker($queue, resetState: static fn () => $container->get(ServicesResetter::class)->reset());
+```
+
+Ошибка сброса пишется в лог и не останавливает воркер.
+
 ## Оглавление
 - [Документация](docs/index.md)
 - [About](docs/01-about.md)

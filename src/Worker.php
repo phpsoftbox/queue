@@ -38,6 +38,13 @@ final readonly class Worker
          */
         private ?Closure $retryDelayResolver = null,
         private int $retryDelaySeconds = 0,
+        /**
+         * Сброс состояния после каждой задачи (например, `ServicesResetter::reset()` из phpsoftbox/container):
+         * задачи одного воркера не должны видеть кеши, identity map и контекст предыдущих.
+         *
+         * @var null|Closure():void
+         */
+        private ?Closure $resetState = null,
     ) {
     }
 
@@ -70,6 +77,7 @@ final readonly class Worker
                     'job_id' => $job->id(),
                 ]);
                 $this->dispatchEvent(new JobAfterEvent($job, $progress, $status));
+                $this->resetState($logger);
                 continue;
             }
 
@@ -143,10 +151,30 @@ final readonly class Worker
                 }
             } finally {
                 $this->dispatchEvent(new JobAfterEvent($job, $progress, $status, $lastException));
+                $this->resetState($logger);
             }
         }
 
         return $processed;
+    }
+
+    /**
+     * Ошибка сброса не останавливает воркер: она пишется в лог, следующая задача выполняется.
+     */
+    private function resetState(?LoggerInterface $logger): void
+    {
+        if ($this->resetState === null) {
+            return;
+        }
+
+        try {
+            ($this->resetState)();
+        } catch (Throwable $exception) {
+            $logger?->error('Queue worker state reset failed', [
+                'exception' => $exception::class,
+                'message'   => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function pullJob(): ?QueueJob
