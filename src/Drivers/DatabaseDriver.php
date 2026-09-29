@@ -77,7 +77,10 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
             $priority    = $job->priority();
 
             $sql = sprintf(
-                'INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s, %s) VALUES (:job_id, :payload, :attempts, :priority, :available_datetime, :created_datetime, :mutex_key, :mutex_ttl_seconds, :is_cancellable)',
+                '
+                    INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (:job_id, :payload, :attempts, :priority, :available_datetime, :created_datetime, :mutex_key, :mutex_ttl_seconds, :is_cancellable)
+                ',
                 $table,
                 $this->schema->jobIdColumn,
                 $this->schema->payloadColumn,
@@ -146,7 +149,14 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
                 $now               = $this->formatTimestamp($nowTs);
 
                 $sql = sprintf(
-                    'SELECT * FROM %s WHERE %s <= :now AND (%s IS NULL OR %s <= :now) ORDER BY %s DESC, %s ASC LIMIT 1%s',
+                    '
+                        SELECT *
+                        FROM %s
+                        WHERE %s <= :now
+                            AND (%s IS NULL OR %s <= :now)
+                        ORDER BY %s DESC, %s ASC
+                        LIMIT 1%s
+                    ',
                     $table,
                     $availableAtColumn,
                     $reservedAtColumn,
@@ -222,7 +232,19 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
             $table = $conn->table($this->schema->table);
             $conn->execute(
                 sprintf(
-                    'UPDATE %s SET %s = :payload, %s = :attempts, %s = :priority, %s = :available_datetime, %s = :reserved_datetime, %s = :mutex_key, %s = :mutex_ttl_seconds, %s = :is_cancellable WHERE %s = :job_id',
+                    '
+                        UPDATE %s
+                        SET
+                            %s = :payload,
+                            %s = :attempts,
+                            %s = :priority,
+                            %s = :available_datetime,
+                            %s = :reserved_datetime,
+                            %s = :mutex_key,
+                            %s = :mutex_ttl_seconds,
+                            %s = :is_cancellable
+                        WHERE %s = :job_id
+                    ',
                     $table,
                     $this->schema->payloadColumn,
                     $this->schema->attemptsColumn,
@@ -480,7 +502,10 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
         try {
             $conn->execute(
                 sprintf(
-                    'INSERT INTO %s (%s, %s, %s, %s, %s) VALUES (:mutex_key, :owner_job_id, :expires_datetime, :created_datetime, :updated_datetime)',
+                    '
+                        INSERT INTO %s (%s, %s, %s, %s, %s)
+                        VALUES (:mutex_key, :owner_job_id, :expires_datetime, :created_datetime, :updated_datetime)
+                    ',
                     $table,
                     $this->mutexSchema->mutexKeyColumn,
                     $this->mutexSchema->ownerJobIdColumn,
@@ -525,7 +550,14 @@ final class DatabaseDriver implements QueueInterface, QueueMutexAwareInterface, 
 
         $conn->execute(
             sprintf(
-                'UPDATE %s SET %s = :owner_job_id, %s = :expires_datetime, %s = :updated_datetime WHERE %s = :mutex_key',
+                '
+                    UPDATE %s
+                    SET
+                        %s = :owner_job_id,
+                        %s = :expires_datetime,
+                        %s = :updated_datetime
+                    WHERE %s = :mutex_key
+                ',
                 $table,
                 $this->mutexSchema->ownerJobIdColumn,
                 $this->mutexSchema->expiresDatetimeColumn,
