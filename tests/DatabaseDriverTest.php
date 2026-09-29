@@ -160,11 +160,11 @@ final class DatabaseDriverTest extends TestCase
     #[Test]
     public function testPopRetriesAfterConnectionLostWhenManagerSupportsReconnect(): void
     {
-        $primary = $this->createMock(ConnectionInterface::class);
+        $primary = $this->createStub(ConnectionInterface::class);
         $primary->method('isReadOnly')->willReturn(false);
         $primary->method('transaction')->willThrowException(new RuntimeException('MySQL server has gone away'));
 
-        $secondary = $this->createMock(ConnectionInterface::class);
+        $secondary = $this->createStub(ConnectionInterface::class);
         $secondary->method('isReadOnly')->willReturn(false);
         $secondary->method('table')->willReturnCallback(static fn (string $name): string => $name);
         $secondary->method('fetchOne')->willReturn(null);

@@ -168,7 +168,7 @@ final class ProgressStoreFactoryTest extends TestCase
     #[Test]
     public function propagatesConnectionFailures(): void
     {
-        $manager = $this->createMock(ConnectionManagerInterface::class);
+        $manager = $this->createStub(ConnectionManagerInterface::class);
         $manager->method('write')->willThrowException(new RuntimeException('Connection refused'));
         $store = new ProgressStoreFactory()->create([], $manager);
         $this->expectException(RuntimeException::class);
@@ -183,7 +183,7 @@ final class ProgressStoreFactoryTest extends TestCase
     #[Test]
     public function rejectsReadOnlyWrites(): void
     {
-        $manager    = $this->createMock(ConnectionManagerInterface::class);
+        $manager    = $this->createStub(ConnectionManagerInterface::class);
         $connection = $this->createMock(ConnectionInterface::class);
         $connection->method('isReadOnly')->willReturn(true);
         $connection->expects(self::never())->method('execute');

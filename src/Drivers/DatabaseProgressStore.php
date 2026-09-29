@@ -70,7 +70,10 @@ final class DatabaseProgressStore implements ProgressStoreInterface
             if (!is_array($existing)) {
                 $connection->execute(
                     sprintf(
-                        'INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) VALUES (:job_id, :status, :total, :processed, :percent, :step_percent, :attempt, :started_datetime, :created_datetime, :updated_datetime)',
+                        '
+                            INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            VALUES (:job_id, :status, :total, :processed, :percent, :step_percent, :attempt, :started_datetime, :created_datetime, :updated_datetime)
+                        ',
                         $connection->table($this->schema->table),
                         $this->schema->jobIdColumn,
                         $this->schema->statusColumn,
@@ -102,7 +105,21 @@ final class DatabaseProgressStore implements ProgressStoreInterface
 
             $connection->execute(
                 sprintf(
-                    'UPDATE %s SET %s = :status, %s = :total, %s = :processed, %s = :percent, %s = :step_percent, %s = :attempt, %s = :error, %s = :started_datetime, %s = :finished_datetime, %s = :updated_datetime WHERE %s = :job_id',
+                    '
+                        UPDATE %s
+                        SET
+                            %s = :status,
+                            %s = :total,
+                            %s = :processed,
+                            %s = :percent,
+                            %s = :step_percent,
+                            %s = :attempt,
+                            %s = :error,
+                            %s = :started_datetime,
+                            %s = :finished_datetime,
+                            %s = :updated_datetime
+                        WHERE %s = :job_id
+                    ',
                     $connection->table($this->schema->table),
                     $this->schema->statusColumn,
                     $this->schema->totalColumn,
@@ -243,7 +260,15 @@ final class DatabaseProgressStore implements ProgressStoreInterface
 
             $connection->execute(
                 sprintf(
-                    'UPDATE %s SET %s = :status, %s = :error, %s = :finished_datetime, %s = :updated_datetime WHERE %s',
+                    '
+                        UPDATE %s
+                        SET
+                            %s = :status,
+                            %s = :error,
+                            %s = :finished_datetime,
+                            %s = :updated_datetime
+                        WHERE %s
+                    ',
                     $connection->table($this->schema->table),
                     $this->schema->statusColumn,
                     $this->schema->errorColumn,

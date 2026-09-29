@@ -13,17 +13,16 @@
         "sort-packages": true
     },
     "require": {
-        "php": "^8.4",
+        "php": "^8.5",
         "phpsoftbox/clock": "dev-master",
         "phpsoftbox/database": "dev-master",
         "psr/event-dispatcher": "^1.0",
         "psr/log": "^3.0"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.93",
         "phpsoftbox/cli-app": "dev-master",
-        "phpsoftbox/cs-fixer": "^1.1.0",
-        "phpunit/phpunit": "^11.2"
+        "phpsoftbox/cs-fixer": "^1.2.1",
+        "phpunit/phpunit": "^13.3"
     },
     "autoload": {
         "psr-4": {
