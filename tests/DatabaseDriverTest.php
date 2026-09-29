@@ -75,7 +75,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main');
@@ -142,7 +142,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main');
@@ -258,7 +258,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), connectionName: 'main');
@@ -314,7 +314,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main', visibilityTimeoutSeconds: 60);
@@ -378,7 +378,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main', visibilityTimeoutSeconds: 60);
@@ -440,7 +440,7 @@ final class DatabaseDriverTest extends TestCase
                 $table->string('owner_job_id', 64);
                 $table->datetime('expires_datetime');
                 $table->datetime('created_datetime')->useCurrent();
-                $table->datetime('updated_datetime')->useCurrent()->useCurrentOnUpdate();
+                $table->datetime('updated_datetime')->useCurrent();
             });
 
             $queue = new DatabaseDriver($manager, new DatabaseQueueSchema(), 'main');
